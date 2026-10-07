@@ -1,0 +1,111 @@
+﻿param([switch]$NoBrowser, [int]$Port = 8766, [switch]$ValidateOnly)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+$gpxFolder = Join-Path $root 'GPX'
+$culture = [Globalization.CultureInfo]::InvariantCulture
+$script:rides = @{}
+$script:cache = @{}
+$script:windAttempted = @{}
+function Read-Ride($file) {
+    $fingerprint = $file.FullName + '|' + $file.Length + '|' + $file.LastWriteTimeUtc.Ticks
+    if ($script:cache.ContainsKey($fingerprint)) { return $script:cache[$fingerprint] }
+    $settings = [Xml.XmlReaderSettings]::new()
+    $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+    $settings.XmlResolver = $null
+    $reader = [Xml.XmlReader]::Create($file.FullName, $settings)
+    $doc = [Xml.XmlDocument]::new()
+    try { $doc.Load($reader) } finally { $reader.Dispose() }
+    $points = [Collections.Generic.List[object]]::new()
+    $distance = 0.0
+    $segments = $doc.SelectNodes('//*[local-name()="trkseg" or local-name()="rte"]')
+    foreach ($segment in $segments) {
+        $prev = $null
+        foreach ($p in $segment.SelectNodes('*[local-name()="trkpt" or local-name()="rtept"]')) {
+            $lat = [double]::Parse($p.GetAttribute('lat'),$culture)
+            $lon = [double]::Parse($p.GetAttribute('lon'),$culture)
+            if ([double]::IsNaN($lat) -or [double]::IsNaN($lon) -or [Math]::Abs($lat) -gt 90 -or [Math]::Abs($lon) -gt 180) { throw 'Coordenadas invalidas.' }
+            if ($null -ne $prev) {
+                $rad = [Math]::PI/180
+                $a = [Math]::Pow([Math]::Sin(($lat-$prev[0])*$rad/2),2)+[Math]::Cos($lat*$rad)*[Math]::Cos($prev[0]*$rad)*[Math]::Pow([Math]::Sin(($lon-$prev[1])*$rad/2),2)
+                $distance += 6371*2*[Math]::Asin([Math]::Sqrt([Math]::Min(1.0,$a)))
+            }
+            $ele = $null; $time = $null
+            $e = $p.SelectSingleNode('*[local-name()="ele"]')
+            $t = $p.SelectSingleNode('*[local-name()="time"]')
+            if ($e) { $v = 0.0; if ([double]::TryParse($e.InnerText,[Globalization.NumberStyles]::Float,$culture,[ref]$v) -and -not [double]::IsInfinity($v) -and -not [double]::IsNaN($v)) { $ele=$v } }
+            if ($t) { $v = [DateTimeOffset]::MinValue; if ([DateTimeOffset]::TryParse($t.InnerText,$culture,[Globalization.DateTimeStyles]::AssumeUniversal,[ref]$v)) { $time=$v.ToUnixTimeSeconds() } }
+            $points.Add(@($lat,$lon,$ele,[Math]::Round($distance,6),$time,($null -eq $prev)))
+            $prev = @($lat,$lon)
+        }
+    }
+    if ($points.Count -lt 2) { throw 'O GPX precisa conter pelo menos dois pontos de percurso.' }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $id = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($file.Name)))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+    $titleNode = $doc.SelectSingleNode('//*[local-name()="trk" or local-name()="rte"]/*[local-name()="name"]')
+    $title = $file.BaseName
+    if ($titleNode -and $titleNode.InnerText.Trim()) { $title = $titleNode.InnerText.Trim() }
+    $start = $points[0][4]; $end = $points[$points.Count-1][4]
+    $date = 'Data não informada'; $duration = 'Não informado'; $sort = 0
+    if ($null -ne $start) { $date = [DateTimeOffset]::FromUnixTimeSeconds($start).ToOffset([TimeSpan]::FromHours(-3)).ToString('dd/MM/yyyy'); $sort=$start }
+    if ($null -ne $start -and $null -ne $end -and $end -ge $start) { $span=[TimeSpan]::FromSeconds($end-$start); $duration=('{0}h {1:00}min {2:00}s' -f [int][Math]::Floor($span.TotalHours),$span.Minutes,$span.Seconds) }
+    $ride = @{id=$id; name=$title; file=$file.Name; date=$date; duration=$duration; distance=[Math]::Round($distance,3); sort=$sort; points=$points.ToArray(); path=$file.FullName}
+    $script:cache[$fingerprint] = $ride
+    return $ride
+}
+function Get-Catalog {
+    $script:rides = @{}
+    $items = [Collections.Generic.List[object]]::new()
+    foreach ($file in Get-ChildItem -LiteralPath $gpxFolder -File | Where-Object Extension -IEQ '.gpx') {
+        try {
+            $r = Read-Ride $file
+            $script:rides[$r.id] = $r
+            $items.Add(@{id=$r.id;name=$r.name;file=$r.file;date=$r.date;duration=$r.duration;distance=$r.distance;sort=$r.sort})
+        } catch { $items.Add(@{name=$file.BaseName;file=$file.Name;error=$_.Exception.Message;sort=0}) }
+    }
+    return ConvertTo-Json -InputObject @($items.ToArray() | Sort-Object { $_.sort } -Descending) -Depth 5 -Compress
+}
+function Get-Map($ride) {
+    $html = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'mapa.template.html'))
+    $wind = '{"locations":[]}'
+    # A cache is tied to the exact GPX bytes, never to another ride's date/name.
+    $hash = (Get-FileHash -LiteralPath $ride.path -Algorithm SHA256).Hash
+    $windPath = Join-Path $PSScriptRoot "vento\$hash.json"
+    if (-not (Test-Path -LiteralPath $windPath) -and -not $script:windAttempted.ContainsKey($hash) -and -not $ValidateOnly) {
+        $script:windAttempted[$hash]=$true
+        try { & (Join-Path $PSScriptRoot 'consultar-vento.ps1') -GpxPath $ride.path -OutputPath $windPath | Out-Null } catch { Write-Warning 'Vento indisponivel para este pedal. O mapa continua funcionando.' }
+    }
+    if (Test-Path -LiteralPath $windPath) { $wind = [IO.File]::ReadAllText($windPath) }
+    $values = @{TITLE=$ride.name; DATE=$ride.date; DURATION=$ride.duration; FILE=$ride.file}
+    foreach ($key in $values.Keys) { $html=$html.Replace("__$($key)__",[Net.WebUtility]::HtmlEncode([string]$values[$key])) }
+    $json = ConvertTo-Json -InputObject $ride.points -Depth 5 -Compress
+    $html=$html.Replace('__ROUTE_DATA__',$json.Replace('<','\u003c')).Replace('__WIND_DATA__',$wind.Replace('<','\u003c'))
+    return $html.Replace('__WIND_CODE__',[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'vento.js')))
+}
+if ($ValidateOnly) { Get-Catalog; foreach ($ride in $script:rides.Values) { $map=Get-Map $ride; if ($map -match '__[A-Z_]+__') { throw 'Marcador nao substituido.' }; Write-Output "OK: $($ride.file), $($ride.points.Count) pontos" }; exit }
+$listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$Port)
+try { $listener.Start() } catch { $listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0); $listener.Start() }
+$url="http://127.0.0.1:$($listener.LocalEndpoint.Port)/"
+Write-Host "Meus pedais: $url"
+Write-Host 'Feche esta janela para encerrar. Coloque novos arquivos na pasta GPX e clique em Atualizar lista.'
+try {
+    if (-not $NoBrowser) { Start-Process $url }
+    while ($true) {
+        $client=$listener.AcceptTcpClient()
+        try {
+            $client.ReceiveTimeout=3000; $client.SendTimeout=3000
+            $stream=$client.GetStream(); $reader=[IO.StreamReader]::new($stream)
+            $request=$reader.ReadLine(); $count=0
+            do { $line=$reader.ReadLine(); $count++ } while ($line -and $count -lt 100)
+            $status='200 OK'; $type='text/html; charset=utf-8'
+            if ($request -match '^GET /(?:\?[^ ]*)? HTTP/1\.[01]$') { $body=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'index.html')) }
+            elseif ($request -match '^GET /api/pedais(?:\?[^ ]*)? HTTP/1\.[01]$') { $body=Get-Catalog; $type='application/json; charset=utf-8' }
+            elseif ($request -match '^GET /mapa/([a-f0-9]{64}) HTTP/1\.[01]$') {
+                $id=$Matches[1]; $null=Get-Catalog
+                if ($script:rides.ContainsKey($id)) { $body=Get-Map $script:rides[$id] } else { $status='404 Not Found'; $body='Pedal nao encontrado. Volte a lista e atualize.' }
+            } else { $status='404 Not Found'; $body='Pagina nao encontrada.' }
+            $bytes=[Text.Encoding]::UTF8.GetBytes($body)
+            $headers=[Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $status`r`nContent-Type: $type`r`nContent-Length: $($bytes.Length)`r`nCache-Control: no-store`r`nX-Content-Type-Options: nosniff`r`nConnection: close`r`n`r`n")
+            $stream.Write($headers,0,$headers.Length); $stream.Write($bytes,0,$bytes.Length); $stream.Flush()
+        } catch { Write-Warning $_.Exception.Message } finally { $client.Dispose() }
+    }
+} finally { $listener.Stop() }

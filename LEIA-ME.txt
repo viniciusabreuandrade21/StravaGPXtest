@@ -1,0 +1,34 @@
+﻿MEUS PEDAIS
+
+1. Coloque os novos arquivos .gpx na pasta GPX.
+2. Dê dois cliques em Abrir meus pedais.cmd.
+3. Escolha Abrir mapa ao lado do pedal desejado.
+
+Se a biblioteca já estiver aberta, clique em Atualizar lista depois de adicionar um GPX.
+Mantenha a janela de comando aberta enquanto usa os mapas. Feche-a para encerrar.
+Não precisa abrir o VS Code nem instalar programas.
+
+Cada GPX fornece seu próprio nome, data, distância, horário e altitude.
+Horários em Brasília. Distâncias estimadas podem diferir do Strava.
+A animação leva 60 segundos em 1x e não reproduz a velocidade real.
+No canto inferior direito do mapa, Modo navegação aproxima a visão e acompanha
+o marcador durante o Play. A seta azul indica a direção do pedal; o norte fica
+para cima. Funciona também com a barra de progresso e Reiniciar.
+Ao lado da seta, Vel mostra a velocidade estimada entre os pontos GPS e seus
+horários; Vento mostra a intensidade meteorológica no mesmo local e horário.
+A velocidade do Play não altera esses valores. Sem horários válidos, em uma
+mudança de segmento ou intervalo maior que 30 segundos, Vel mostra Sem dados.
+Sair da navegação restaura a visão anterior. Ver percurso inteiro encerra o modo
+e mostra o trajeto completo. Arrastar o mapa também libera o acompanhamento.
+Esse modo reproduz o GPX em 2D; não usa GPS ao vivo nem fornece instruções de curvas.
+Arquivos inválidos aparecem com uma mensagem e não impedem os outros mapas.
+
+O mapa de ruas e a consulta de vento precisam de internet.
+O vento é consultado uma vez por arquivo ao abrir o mapa, com cache separado por GPX.
+Se a consulta falhar, o mapa funciona sem vento. Reabra o iniciador para tentar novamente.
+São estimativas meteorológicas regionais a 10 m do solo, não medições na bicicleta.
+As consultas enviam coordenadas arredondadas e datas ao Open-Meteo, como na versão anterior.
+
+GPX: seus percursos originais.
+sistema: arquivos usados pela biblioteca; não é necessário editá-los.
+Anterior: cópia da versão anterior, incluindo o GPX original.

@@ -1,0 +1,64 @@
+﻿COMO ABRIR
+
+1. Abra esta pasta no Explorador de Arquivos do Windows.
+2. Dê dois cliques em Abrir mapa.cmd. Mantenha a janela de comando aberta.
+3. O navegador abrirá o mapa automaticamente em um endereço local.
+   Normalmente será http://127.0.0.1:8765/percurso.html. Se a porta estiver
+   ocupada, o iniciador escolherá outra porta livre e abrirá o endereço correto.
+
+Não é necessário instalar nada. O iniciador abre um servidor restrito ao seu computador. Use internet para
+carregar a biblioteca do mapa e as ruas do OpenStreetMap.
+
+COMO USAR
+
+- Play inicia o marcador e pinta o caminho já percorrido; Pausar interrompe.
+- Reiniciar volta ao início.
+- Velocidade permite escolher 1x, 2x ou 4x.
+- A barra de progresso ou um clique no gráfico permite escolher uma posição.
+- Arraste o mapa e use os botões + e - para explorar.
+- Ver percurso inteiro restaura o enquadramento inicial.
+
+VENTO
+
+- O painel Vento durante o pedal acompanha o Play e a barra de progresso.
+- O horário exibido é o do GPX, convertido para Brasília (UTC-3).
+- A seta junto ao marcador aponta PARA ONDE o vento sopra.
+- A direção escrita mostra origem e destino: N -> S significa vento vindo do norte.
+- Cores: laranja = contra; verde = a favor; azul = lateral; cinza = fraco/sem dados.
+- Desmarque Colorir percurso pelo vento para voltar ao traçado simples.
+- Passe o mouse sobre um trecho colorido para consultar vento e horário desse trecho.
+
+Fonte: Open-Meteo, Best Match, dados de modelos meteorológicos arquivados.
+Foram consultados cinco setores arredondados a 0,1 grau, correspondentes a três
+células meteorológicas distintas nesta resposta. Usamos o setor consultado mais
+próximo e interpolação vetorial entre as horas. O vento é informado a 10 m do solo.
+Os dados cobrem todos os horários deste GPX e estão incorporados em percurso.html.
+vento.json guarda a resposta selecionada, o endereço consultado e a data da coleta.
+
+A classificação compara o vento com a direção do trajeto numa janela de cerca
+de 100 metros. Contra/a favor exigem componente longitudinal de pelo menos 50%
+da intensidade; os demais casos são laterais. Vento abaixo de 1 km/h é fraco.
+Não se trata de vento aparente nem de estimativa de esforço ou potência.
+São estimativas regionais, sem representar obstáculos e rajadas locais.
+A animação continua baseada em distância e pode saltar períodos parado.
+
+Arquivos auxiliares: consultar-vento.ps1 consulta a fonte; vento.js calcula
+direções/componentes; criar-pagina.ps1 incorpora os dados e gera percurso.html.
+Não é necessário executá-los para usar o resultado já pronto.
+Documentação: https://open-meteo.com/en/docs
+
+DADOS
+
+12.421 pontos; distância estimada: 76,663 km.
+Altitude mínima: 4,6 m; máxima: 19,2 m.
+Tempo entre primeiro e último registro: 4h 18min 48s (inclui paradas).
+A distância usa a fórmula de Haversine entre pontos GPS e pode diferir do Strava.
+A animação usa distância, não tempo real: 60 segundos em 1x.
+
+O arquivo Adeus_pernas.gpx foi preservado. Os pontos estão incorporados em
+percurso.html, use Abrir mapa.cmd para carregar as ruas corretamente.
+pagina.template.html e criar-pagina.ps1 são arquivos auxiliares de geração;
+não é necessário abri-los ou executá-los para usar a página.
+
+Mapa: Leaflet 1.9.4 (https://leafletjs.com/examples/quick-start/)
+Ruas: OpenStreetMap (https://www.openstreetmap.org/copyright)
