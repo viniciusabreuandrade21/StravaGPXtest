@@ -1,4 +1,4 @@
-﻿param([switch]$NoBrowser, [int]$Port = 8766, [switch]$ValidateOnly)
+﻿param([switch]$NoBrowser, [int]$Port = 8766, [switch]$ValidateOnly, [switch]$ExportSite)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $gpxFolder = Join-Path $root 'GPX'
@@ -70,7 +70,7 @@ function Get-Map($ride) {
     # A cache is tied to the exact GPX bytes, never to another ride's date/name.
     $hash = (Get-FileHash -LiteralPath $ride.path -Algorithm SHA256).Hash
     $windPath = Join-Path $PSScriptRoot "vento\$hash.json"
-    if (-not (Test-Path -LiteralPath $windPath) -and -not $script:windAttempted.ContainsKey($hash) -and -not $ValidateOnly) {
+    if (-not (Test-Path -LiteralPath $windPath) -and -not $script:windAttempted.ContainsKey($hash) -and -not $ValidateOnly -and -not $ExportSite) {
         $script:windAttempted[$hash]=$true
         try { & (Join-Path $PSScriptRoot 'consultar-vento.ps1') -GpxPath $ride.path -OutputPath $windPath | Out-Null } catch { Write-Warning 'Vento indisponivel para este pedal. O mapa continua funcionando.' }
     }
@@ -80,6 +80,35 @@ function Get-Map($ride) {
     $json = ConvertTo-Json -InputObject $ride.points -Depth 5 -Compress
     $html=$html.Replace('__ROUTE_DATA__',$json.Replace('<','\u003c')).Replace('__WIND_DATA__',$wind.Replace('<','\u003c'))
     return $html.Replace('__WIND_CODE__',[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'vento.js')))
+}
+if ($ExportSite) {
+    $output = Join-Path $root 'docs'
+    $maps = Join-Path $output 'mapa'
+    [IO.Directory]::CreateDirectory($maps) | Out-Null
+    $utf8 = [Text.UTF8Encoding]::new($false)
+    $catalog = Get-Catalog
+    $items = @($catalog | ConvertFrom-Json)
+    if (@($items | Where-Object { $_.error }).Count) { throw 'Corrija os GPX invalidos antes de publicar.' }
+    foreach ($ride in $script:rides.Values) {
+        $map = (Get-Map $ride).Replace('href="/"','href="../index.html"')
+        if ($map -match '__[A-Z_]+__') { throw 'Marcador nao substituido.' }
+        [IO.File]::WriteAllText((Join-Path $maps ($ride.id+'.html')),$map,$utf8)
+    }
+    # Retira somente paginas geradas de percursos removidos da biblioteca.
+    foreach ($file in Get-ChildItem -LiteralPath $maps -File) {
+        if ($file.Name -match '^([a-f0-9]{64})\.html$' -and -not $script:rides.ContainsKey($Matches[1])) {
+            Remove-Item -LiteralPath $file.FullName
+        }
+    }
+    [IO.File]::WriteAllText((Join-Path $output 'pedais.json'),$catalog,$utf8)
+    $index = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'index.html'))
+    $index = $index.Replace("fetch('/api/pedais')","fetch('./pedais.json')").Replace("link.href='/mapa/'+ride.id","link.href='./mapa/'+ride.id+'.html'")
+    $index = $index.Replace('Coloque seus arquivos <b>.gpx</b> na pasta <b>GPX</b> e clique em <b>Atualizar lista</b>. Cada pedal tem seu próprio mapa, animação e perfil de altitude.','Explore meus pedais: abra um percurso para ver o mapa, a animação, a altitude e os dados de vento disponíveis.')
+    $index = $index.Replace('Os arquivos ficam no seu computador. O mapa de ruas precisa de internet.','Percursos compartilhados publicamente. Mapas: OpenStreetMap. Vento: Open-Meteo.').Replace('Ainda não há pedais. Coloque um arquivo na pasta GPX para começar.','Ainda não há pedais publicados.').Replace('Não foi possível acessar a biblioteca. Abra “Abrir meus pedais.cmd” e tente novamente.','Não foi possível carregar os pedais. Verifique sua conexão e atualize a página.')
+    [IO.File]::WriteAllText((Join-Path $output 'index.html'),$index,$utf8)
+    [IO.File]::WriteAllText((Join-Path $output '.nojekyll'),'',$utf8)
+    Write-Output "Site exportado: $($script:rides.Count) pedais em docs."
+    return
 }
 if ($ValidateOnly) { Get-Catalog; foreach ($ride in $script:rides.Values) { $map=Get-Map $ride; if ($map -match '__[A-Z_]+__') { throw 'Marcador nao substituido.' }; Write-Output "OK: $($ride.file), $($ride.points.Count) pontos" }; exit }
 $listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$Port)
