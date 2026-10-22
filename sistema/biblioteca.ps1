@@ -6,6 +6,7 @@ $culture = [Globalization.CultureInfo]::InvariantCulture
 $script:rides = @{}
 $script:cache = @{}
 $script:windAttempted = @{}
+$script:missingWind = [Collections.Generic.List[string]]::new()
 function Read-Ride($file) {
     $fingerprint = $file.FullName + '|' + $file.Length + '|' + $file.LastWriteTimeUtc.Ticks
     if ($script:cache.ContainsKey($fingerprint)) { return $script:cache[$fingerprint] }
@@ -70,11 +71,30 @@ function Get-Map($ride) {
     # A cache is tied to the exact GPX bytes, never to another ride's date/name.
     $hash = (Get-FileHash -LiteralPath $ride.path -Algorithm SHA256).Hash
     $windPath = Join-Path $PSScriptRoot "vento\$hash.json"
-    if (-not (Test-Path -LiteralPath $windPath) -and -not $script:windAttempted.ContainsKey($hash) -and -not $ValidateOnly -and -not $ExportSite) {
-        $script:windAttempted[$hash]=$true
-        try { & (Join-Path $PSScriptRoot 'consultar-vento.ps1') -GpxPath $ride.path -OutputPath $windPath | Out-Null } catch { Write-Warning 'Vento indisponivel para este pedal. O mapa continua funcionando.' }
+    $hasWind = $false
+    if (Test-Path -LiteralPath $windPath) {
+        try {
+            $cached = [IO.File]::ReadAllText($windPath)
+            $data = ConvertFrom-Json -InputObject $cached
+            if (@($data.locations).Count -gt 0 -and $data.locations[0].hourly.time.Count -gt 0) {
+                $wind = $cached
+                $hasWind = $true
+            }
+        } catch { Write-Warning "Cache de vento invalido: $($ride.file). Sera consultado novamente." }
     }
-    if (Test-Path -LiteralPath $windPath) { $wind = [IO.File]::ReadAllText($windPath) }
+    if (-not $hasWind -and -not $script:windAttempted.ContainsKey($hash) -and -not $ValidateOnly) {
+        $script:windAttempted[$hash]=$true
+        Write-Host "Consultando vento: $($ride.file)..."
+        try {
+            [IO.Directory]::CreateDirectory((Split-Path $windPath -Parent)) | Out-Null
+            & (Join-Path $PSScriptRoot 'consultar-vento.ps1') -GpxPath $ride.path -OutputPath $windPath | Out-Host
+            $wind = [IO.File]::ReadAllText($windPath)
+            $hasWind = $true
+        } catch {
+            Write-Warning "Vento indisponivel em $($ride.file): $($_.Exception.Message). Gere novamente para tentar outra vez."
+        }
+    }
+    if (-not $hasWind -and $ExportSite) { $script:missingWind.Add($ride.file) }
     $values = @{TITLE=$ride.name; DATE=$ride.date; DURATION=$ride.duration; FILE=$ride.file}
     foreach ($key in $values.Keys) { $html=$html.Replace("__$($key)__",[Net.WebUtility]::HtmlEncode([string]$values[$key])) }
     $json = ConvertTo-Json -InputObject $ride.points -Depth 5 -Compress
@@ -112,6 +132,9 @@ if ($ExportSite) {
     [IO.File]::WriteAllText((Join-Path $output 'index.html'),$index,$utf8)
     [IO.File]::WriteAllText((Join-Path $output '.nojekyll'),'',$utf8)
     Write-Output "Site exportado: $($script:rides.Count) pedais em docs."
+    if ($script:missingWind.Count) {
+        Write-Warning ("Mapas gerados sem vento: " + ($script:missingWind -join ', ') + '. Confira a internet e gere novamente antes de publicar.')
+    } else { Write-Host 'Vento incluido em todos os pedais. Agora faca Commit e Push para atualizar o site.' }
     return
 }
 if ($ValidateOnly) { Get-Catalog; foreach ($ride in $script:rides.Values) { $map=Get-Map $ride; if ($map -match '__[A-Z_]+__') { throw 'Marcador nao substituido.' }; Write-Output "OK: $($ride.file), $($ride.points.Count) pontos" }; exit }

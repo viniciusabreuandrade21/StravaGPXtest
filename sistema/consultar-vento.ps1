@@ -16,7 +16,7 @@ $lats = ($locations.Values | ForEach-Object { $_[0].ToString('F1',$culture) }) -
 $lons = ($locations.Values | ForEach-Object { $_[1].ToString('F1',$culture) }) -join ','
 $endpoint = if (([DateTime]::UtcNow - [DateTime]::Parse($start)).TotalDays -le 5) { 'https://api.open-meteo.com/v1/forecast' } else { 'https://historical-forecast-api.open-meteo.com/v1/forecast' }
 $url = $endpoint+'?latitude='+$lats+'&longitude='+$lons+'&start_date='+$start+'&end_date='+$end+'&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timezone=GMT&timeformat=unixtime'
-$response = Invoke-RestMethod -Uri $url -TimeoutSec 12
+$response = Invoke-RestMethod -Uri $url -TimeoutSec 30
 $results = @($response)
 if ($results.Count -ne $locations.Count) { throw 'Quantidade inesperada de locais na resposta.' }
 $saved = [Collections.Generic.List[object]]::new()

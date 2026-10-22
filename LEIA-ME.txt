@@ -24,8 +24,8 @@ Esse modo reproduz o GPX em 2D; não usa GPS ao vivo nem fornece instruções de
 Arquivos inválidos aparecem com uma mensagem e não impedem os outros mapas.
 
 O mapa de ruas e a consulta de vento precisam de internet.
-O vento é consultado uma vez por arquivo ao abrir o mapa, com cache separado por GPX.
-Se a consulta falhar, o mapa funciona sem vento. Reabra o iniciador para tentar novamente.
+O vento é consultado automaticamente ao gerar o site ou abrir o mapa, com cache separado por GPX.
+Se a consulta falhar, o mapa funciona sem vento e o gerador avisa quais pedais faltam. Execute Gerar site publico.cmd novamente para tentar outra vez.
 São estimativas meteorológicas regionais a 10 m do solo, não medições na bicicleta.
 As consultas enviam coordenadas arredondadas e datas ao Open-Meteo, como na versão anterior.
 
