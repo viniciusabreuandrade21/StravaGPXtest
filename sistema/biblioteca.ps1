@@ -87,8 +87,12 @@ if ($ExportSite) {
     [IO.Directory]::CreateDirectory($maps) | Out-Null
     $utf8 = [Text.UTF8Encoding]::new($false)
     $catalog = Get-Catalog
-    $items = @($catalog | ConvertFrom-Json)
-    if (@($items | Where-Object { $_.error }).Count) { throw 'Corrija os GPX invalidos antes de publicar.' }
+    $items = ConvertFrom-Json -InputObject $catalog
+    $invalid = @($items | Where-Object { $_.error })
+    if ($invalid.Count) {
+        $details = ($invalid | ForEach-Object { "$($_.file): $($_.error)" }) -join [Environment]::NewLine
+        throw ("Corrija os GPX invalidos antes de publicar:" + [Environment]::NewLine + $details)
+    }
     foreach ($ride in $script:rides.Values) {
         $map = (Get-Map $ride).Replace('href="/"','href="../index.html"')
         if ($map -match '__[A-Z_]+__') { throw 'Marcador nao substituido.' }
